@@ -819,7 +819,7 @@ class enrol_voot_plugin extends enrol_plugin {
      *
      * @return null|mixedJSON
      */
-    protected function voot_init() {
+    protected function voot_getcourses() {
         global $CFG;
 
 	$url = $this->get_config('vootproto') . "://" . $this->get_config('voothost') . $this->get_config('urlprefix') . "/groups";
@@ -828,6 +828,25 @@ class enrol_voot_plugin extends enrol_plugin {
 	$groups = json_decode($pagecontent);
 	if (json_last_error() === JSON_ERROR_NONE) { 
 		return $groups;
+	}
+
+	return NULL;
+    }
+
+    /**
+     * Tries to make connection to the external VOOT server.
+     *
+     * @return null|mixedJSON
+     */
+    protected function voot_getmembers($courseid) {
+        global $CFG;
+
+	$url = $this->get_config('vootproto') . "://" . $this->get_config('voothost') . $this->get_config('urlprefix') . "/people/@me/" . $courseid;
+	$pagecontent = $this->getSslPage($url, $this->get_config('vootuser'), $this->get_config('vootpass'));
+
+	$members = json_decode($pagecontent);
+	if (json_last_error() === JSON_ERROR_NONE) { 
+		return $members;
 	}
 
 	return NULL;
@@ -968,8 +987,8 @@ class enrol_voot_plugin extends enrol_plugin {
         $CFG->debug = DEBUG_DEVELOPER;
         error_reporting($CFG->debug);
 
-        $returnedpage = $this->voot_init();
-
+        $returnedpage = $this->voot_getcourses();
+	$first_course = '';
         if (!$returnedpage) {
             $CFG->debug = $olddebug;
             ini_set('display_errors', $olddisplay);
@@ -977,8 +996,26 @@ class enrol_voot_plugin extends enrol_plugin {
             ob_end_flush();
 
             echo $OUTPUT->notification('Cannot connect to the VOOT server.', 'notifyproblem');
-            return;
         }
+	else {
+		$first_course = $returnedpage->entry[0]->id;
+		echo $OUTPUT->notification('External course call retrieves the following fields:<br />'. implode(', ', array_keys(get_object_vars($returnedpage->entry[0]))), 'notifysuccess');
+	}
+
+	if (!empty($first_course)) {
+	        $returnedpage = $this->voot_getmembers($first_course);
+        	if (!$returnedpage) {
+	            $CFG->debug = $olddebug;
+        	    ini_set('display_errors', $olddisplay);
+	            error_reporting($CFG->debug);
+        	    ob_end_flush();
+
+	            echo $OUTPUT->notification('Cannot connect to the VOOT server.', 'notifyproblem');
+	        }
+		else {
+			echo $OUTPUT->notification('External enrolment call retrieves the following fields:<br />'. implode(', ', array_keys(get_object_vars($returnedpage->entry[0]))), 'notifysuccess');
+		}
+	}
 
         $CFG->debug = $olddebug;
         ini_set('display_errors', $olddisplay);
