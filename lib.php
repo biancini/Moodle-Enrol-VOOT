@@ -613,7 +613,7 @@ class enrol_voot_plugin extends enrol_plugin {
         global $CFG, $DB;
 
         // Make sure we sync either enrolments or courses.
-        if (!$this->get_config('dbtype') or !$this->get_config('newcoursetable') or !$this->get_config('newcoursefullname') or !$this->get_config('newcourseshortname')) {
+        if (!$this->get_config('voothost') or !$this->get_config('urlprefix')) {
             $trace->output('Course synchronisation skipped.');
             $trace->finished();
             return 0;
@@ -625,24 +625,20 @@ class enrol_voot_plugin extends enrol_plugin {
         @set_time_limit(0);
         raise_memory_limit(MEMORY_HUGE);
 
-        if (!$extdb = $this->db_init()) {
-            $trace->output('Error while communicating with external enrolment voot');
+        if (!$courses = $this->voot_getcourses()) {
+            $trace->output('Error while communicating with external enrolment VOOT server');
             $trace->finished();
             return 1;
         }
+	else {
+            $courses = get_object_vars($courses);
+            $courses = $courses['entry'];
+	}
 
-        $table     = $this->get_config('newcoursetable');
         $fullname  = trim($this->get_config('newcoursefullname'));
         $shortname = trim($this->get_config('newcourseshortname'));
-        $idnumber  = trim($this->get_config('newcourseidnumber'));
-        $category  = trim($this->get_config('newcoursecategory'));
 
-        // Lowercased versions - necessary because we normalise the resultset with array_change_key_case().
-        $fullname_l  = strtolower($fullname);
-        $shortname_l = strtolower($shortname);
-        $idnumber_l  = strtolower($idnumber);
-        $category_l  = strtolower($category);
-
+	$localcoursefield   = intval($this->get_config('localcoursefield', '0'));
         $localcategoryfield = $this->get_config('localcategoryfield', 'id');
         $defaultcategory    = $this->get_config('defaultcategory');
 
@@ -660,56 +656,37 @@ class enrol_voot_plugin extends enrol_plugin {
         if ($idnumber) {
             $sqlfields[] = $idnumber;
         }
-        $sql = $this->db_get_sql($table, array(), $sqlfields, true);
+
         $createcourses = array();
-        if ($rs = $extdb->Execute($sql)) {
-            if (!$rs->EOF) {
-                while ($fields = $rs->FetchRow()) {
-                    $fields = array_change_key_case($fields, CASE_LOWER);
-                    $fields = $this->db_decode($fields);
-                    if (empty($fields[$shortname_l]) or empty($fields[$fullname_l])) {
-                        $trace->output('error: invalid external course record, shortname and fullname are mandatory: ' . json_encode($fields), 1); // Hopefully every geek can read JS, right?
-                        continue;
-                    }
-                    if ($DB->record_exists('course', array('shortname'=>$fields[$shortname_l]))) {
-                        // Already exists, skip.
-                        continue;
-                    }
-                    // Allow empty idnumber but not duplicates.
-                    if ($idnumber and $fields[$idnumber_l] !== '' and $fields[$idnumber_l] !== null and $DB->record_exists('course', array('idnumber'=>$fields[$idnumber_l]))) {
-                        $trace->output('error: duplicate idnumber, can not create course: '.$fields[$shortname_l].' ['.$fields[$idnumber_l].']', 1);
-                        continue;
-                    }
-                    $course = new stdClass();
-                    $course->fullname  = $fields[$fullname_l];
-                    $course->shortname = $fields[$shortname_l];
-                    $course->idnumber  = $idnumber ? $fields[$idnumber_l] : '';
-                    if ($category) {
-                        if (empty($fields[$category_l])) {
-                            // Empty category means use default.
-                            $course->category = $defaultcategory;
-                        } else if ($coursecategory = $DB->get_record('course_categories', array($localcategoryfield=>$fields[$category_l]), 'id')) {
-                            // Yay, correctly specified category!
-                            $course->category = $coursecategory->id;
-                            unset($coursecategory);
-                        } else {
-                            // Bad luck, better not continue because unwanted ppl might get access to course in different category.
-                            $trace->output('error: invalid category '.$localcategoryfield.', can not create course: '.$fields[$shortname_l], 1);
-                            continue;
-                        }
-                    } else {
-                        $course->category = $defaultcategory;
-                    }
-                    $createcourses[] = $course;
-                }
+        foreach ($courses as $curcourse) {
+            $parts = explode(':', $curcourse->$shortname);
+            if ($parts[$localcoursefield - 1] != 'moodle') {
+                continue;
             }
-            $rs->Close();
-        } else {
-            $extdb->Close();
-            $trace->output('Error reading data from the external course table');
-            $trace->finished();
-            return 4;
+
+            $course_shortname = $parts[$localcoursefield];
+            $parts = explode(':', $curcourse->$fullname);
+            $course_fullname = $parts[$localcoursefield];
+
+            if (empty($course_shortname) or empty($course_fullname)) {
+                $trace->output('error: invalid external course record, shortname and fullname are mandatory: ' . json_encode($curcourse), 1); // Hopefully every geek can read JS, right?
+                continue;
+            }
+            if ($DB->record_exists('course', array('shortname'=>$course_shortname))) {
+                 $trace->output('course ' . $course_shortname . ' already exists, skipping.');
+                 // Already exists, skip.
+                 continue;
+            }
+
+            $course = new stdClass();
+            $course->fullname  = $course_fullname;
+            $course->shortname = $course_shortname;
+            $course->idnumber  = '';
+            $course->category = $defaultcategory;
+
+            $createcourses[] = $course;
         }
+
         if ($createcourses) {
             require_once("$CFG->dirroot/course/lib.php");
 
@@ -777,28 +754,7 @@ class enrol_voot_plugin extends enrol_plugin {
         return 0;
     }
 
-    protected function db_get_sql($table, array $conditions, array $fields, $distinct = false, $sort = "") {
-        $fields = $fields ? implode(',', $fields) : "*";
-        $where = array();
-        if ($conditions) {
-            foreach ($conditions as $key=>$value) {
-                $value = $this->db_encode($this->db_addslashes($value));
-
-                $where[] = "$key = '$value'";
-            }
-        }
-        $where = $where ? "WHERE ".implode(" AND ", $where) : "";
-        $sort = $sort ? "ORDER BY $sort" : "";
-        $distinct = $distinct ? "DISTINCT" : "";
-        $sql = "SELECT $distinct $fields
-                  FROM $table
-                 $where
-                  $sort";
-
-        return $sql;
-    }
-
-    function getSslPage($url, $username, $password) {
+    protected function getSslPage($url, $username, $password) {
         $ch = curl_init();
         curl_setopt($ch, CURLOPT_SSL_VERIFYPEER, FALSE);
         curl_setopt($ch, CURLOPT_HEADER, false);
@@ -850,47 +806,6 @@ class enrol_voot_plugin extends enrol_plugin {
 	}
 
 	return NULL;
-    }
-
-    protected function db_addslashes($text) {
-        // Use custom made function for now - it is better to not rely on adodb or php defaults.
-        if ($this->get_config('dbsybasequoting')) {
-            $text = str_replace('\\', '\\\\', $text);
-            $text = str_replace(array('\'', '"', "\0"), array('\\\'', '\\"', '\\0'), $text);
-        } else {
-            $text = str_replace("'", "''", $text);
-        }
-        return $text;
-    }
-
-    protected function db_encode($text) {
-        $dbenc = $this->get_config('dbencoding');
-        if (empty($dbenc) or $dbenc == 'utf-8') {
-            return $text;
-        }
-        if (is_array($text)) {
-            foreach($text as $k=>$value) {
-                $text[$k] = $this->db_encode($value);
-            }
-            return $text;
-        } else {
-            return core_text::convert($text, 'utf-8', $dbenc);
-        }
-    }
-
-    protected function db_decode($text) {
-        $dbenc = $this->get_config('dbencoding');
-        if (empty($dbenc) or $dbenc == 'utf-8') {
-            return $text;
-        }
-        if (is_array($text)) {
-            foreach($text as $k=>$value) {
-                $text[$k] = $this->db_decode($value);
-            }
-            return $text;
-        } else {
-            return core_text::convert($text, $dbenc, 'utf-8');
-        }
     }
 
     /**

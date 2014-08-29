@@ -22,7 +22,7 @@
  * @license   http://www.gnu.org/copyleft/gpl.html GNU GPL v3 or later
  */
 
-$string['pluginname'] = 'External VOOT connector';
+$string['pluginname'] = 'VOOT Server';
 $string['pluginname_desc'] = 'You can use an external VOOT server to control your enrolments. It is assumed your external VOOT contains at least a field containing a course ID, and a field containing a user ID. These are compared against fields that you choose in the local course and user tables.';
 $string['settingsheadervoot'] = 'External VOOT server connection';
 $string['voot:unenrol'] = 'Unenrol suspended users';
@@ -43,6 +43,7 @@ $string['defaultrole'] = 'Default role';
 $string['defaultrole_desc'] = 'The role that will be assigned by default if no other role is specified in external table.';
 $string['newcoursefullname'] = 'New course full name field';
 $string['newcourseshortname'] = 'New course short name field';
+$string['localcategoryfield'] = 'Local category field';
 $string['defaultcategory'] = 'Default new course category';
 $string['defaultcategory_desc'] = 'The default category for auto-created courses. Used when no new category id specified or not found.';
 $string['templatecourse'] = 'New course template';

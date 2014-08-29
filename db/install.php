@@ -25,6 +25,6 @@
 defined('MOODLE_INTERNAL') || die();
 
 function xmldb_enrol_voot_install() {
-    global $CFG;
+    global $CFG, $DB;
 
 }

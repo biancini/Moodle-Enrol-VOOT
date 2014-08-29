@@ -65,6 +65,9 @@ if ($ADMIN->fulltree) {
 
     $settings->add(new admin_setting_configtext('enrol_voot/newcourseshortname', get_string('newcourseshortname', 'enrol_voot'), '', 'id'));
 
+    $options = array('id'=>'id', 'idnumber'=>'idnumber');
+    $settings->add(new admin_setting_configselect('enrol_voot/localcategoryfield', get_string('localcategoryfield', 'enrol_voot'), '', 'id', $options));
+
     if (!during_initial_install()) {
         $settings->add(new admin_setting_configselect('enrol_voot/defaultcategory', get_string('defaultcategory', 'enrol_voot'), get_string('defaultcategory_desc', 'enrol_voot'), 1, make_categories_options()));
     }
