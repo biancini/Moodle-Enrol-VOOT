@@ -117,16 +117,11 @@ class enrol_voot_plugin extends enrol_plugin {
         }
         $roles = array();
         foreach ($allroles as $role) {
-            $roles[$role->$localrolefield] = $role->id;
+            $roles[$role->shortname] = $role->id;
         }
 
         $enrols = array();
         $instances = array();
-
-        if (!$extdb = $this->db_init()) {
-            // Can not connect to voot, sorry.
-            return;
-        }
 
         // Read remote enrols and create instances.
 	if (!$enrolments = $this->voot_getenrolments($user->username)) {
@@ -135,6 +130,8 @@ class enrol_voot_plugin extends enrol_plugin {
 	}
 
 	foreach($enrolments as $curenrolment) {
+		$curenrolment = get_object_vars($curenrolment);
+
 		if (empty($curenrolment['id'])) {
 			// Missing course info.
 			continue;
@@ -754,9 +751,8 @@ class enrol_voot_plugin extends enrol_plugin {
         global $CFG;
 
 	$groupprefix = get_config('groupprefix', '');
-	$url = $this->get_config('vootproto') . "://" . $this->get_config('voothost') . $this->get_config('urlprefix') . "/groups/" . $yser . "/";
+	$url = $this->get_config('vootproto') . "://" . $this->get_config('voothost') . $this->get_config('urlprefix') . "/groups/" . $user . "/";
 	$pagecontent = $this->getSslPage($url, $this->get_config('vootuser'), $this->get_config('vootpass'));
-
 	$members = json_decode($pagecontent);
 	if (json_last_error() === JSON_ERROR_NONE) { 
 		$members = get_object_vars($members);
