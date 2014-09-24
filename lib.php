@@ -15,7 +15,7 @@
 // along with Moodle.  If not, see <http://www.gnu.org/licenses/>.
 
 /**
- * Database enrolment plugin.
+ * VOOT enrolment plugin.
  *
  * This plugin synchronises enrolment and roles with external voot table.
  *
@@ -27,7 +27,7 @@
 defined('MOODLE_INTERNAL') || die();
 
 /**
- * Database enrolment plugin implementation.
+ * VOOT enrolment plugin implementation.
  * @author  Petr Skoda - based on code by Martin Dougiamas, Martin Langhoff and others
  * @license http://www.gnu.org/copyleft/gpl.html GNU GPL v3 or later
  */
@@ -95,23 +95,11 @@ class enrol_voot_plugin extends enrol_plugin {
         global $CFG, $DB;
 
         // We do not create courses here intentionally because it requires full sync and is slow.
-        if (!$this->get_config('dbtype') or !$this->get_config('remoteenroltable') or !$this->get_config('remotecoursefield') or !$this->get_config('remoteuserfield')) {
+        if (!$this->get_config('voothost') or !$this->get_config('urlprefix')) {
             return;
         }
 
-        $table            = $this->get_config('remoteenroltable');
-        $coursefield      = trim($this->get_config('remotecoursefield'));
-        $userfield        = trim($this->get_config('remoteuserfield'));
-        $rolefield        = trim($this->get_config('remoterolefield'));
-
-        // Lowercased versions - necessary because we normalise the resultset with array_change_key_case().
-        $coursefield_l    = strtolower($coursefield);
-        $userfield_l      = strtolower($userfield);
-        $rolefield_l      = strtolower($rolefield);
-
-        $localrolefield   = $this->get_config('localrolefield');
-        $localuserfield   = $this->get_config('localuserfield');
-        $localcoursefield = $this->get_config('localcoursefield');
+	$localuserfield   = $this->get_config('localuserfield', 'admins');
 
         $unenrolaction    = $this->get_config('unenrolaction');
         $defaultrole      = $this->get_config('defaultrole');
@@ -120,11 +108,6 @@ class enrol_voot_plugin extends enrol_plugin {
 
         if (!is_object($user) or !property_exists($user, 'id')) {
             throw new coding_exception('Invalid $user parameter in sync_user_enrolments()');
-        }
-
-        if (!property_exists($user, $localuserfield)) {
-            debugging('Invalid $user parameter in sync_user_enrolments(), missing '.$localuserfield);
-            $user = $DB->get_record('user', array('id'=>$user->id));
         }
 
         // Create roles mapping.
@@ -146,55 +129,46 @@ class enrol_voot_plugin extends enrol_plugin {
         }
 
         // Read remote enrols and create instances.
-        $sql = $this->db_get_sql($table, array($userfield=>$user->$localuserfield), array(), false);
+	if (!$enrolments = $this->voot_getenrolments($user->username)) {
+		debugging('Error while communicating with external enrolment VOOT server');
+		return;
+	}
 
-        if ($rs = $extdb->Execute($sql)) {
-            if (!$rs->EOF) {
-                while ($fields = $rs->FetchRow()) {
-                    $fields = array_change_key_case($fields, CASE_LOWER);
-                    $fields = $this->db_decode($fields);
+	foreach($enrolments as $curenrolment) {
+		if (empty($curenrolment['id'])) {
+			// Missing course info.
+			continue;
+		}
+		if (!$course = $DB->get_record('course', array('shortname'=>$curenrolment['id']), 'id,visible')) {
+			continue;
+		}
+		if (!$course->visible and $ignorehidden) {
+			continue;
+		}
 
-                    if (empty($fields[$coursefield_l])) {
-                        // Missing course info.
+                if (empty($curenrolment['voot_membership_role']) or !isset($curenrolment['voot_membership_role'])) {
+                    if (!$defaultrole) {
+                        // Role is mandatory.
                         continue;
                     }
-                    if (!$course = $DB->get_record('course', array($localcoursefield=>$fields[$coursefield_l]), 'id,visible')) {
-                        continue;
-                    }
-                    if (!$course->visible and $ignorehidden) {
-                        continue;
-                    }
-
-                    if (empty($fields[$rolefield_l]) or !isset($roles[$fields[$rolefield_l]])) {
-                        if (!$defaultrole) {
-                            // Role is mandatory.
-                            continue;
-                        }
-                        $roleid = $defaultrole;
-                    } else {
-                        $roleid = $roles[$fields[$rolefield_l]];
-                    }
-
-                    if (empty($enrols[$course->id])) {
-                        $enrols[$course->id] = array();
-                    }
-                    $enrols[$course->id][] = $roleid;
-
-                    if ($instance = $DB->get_record('enrol', array('courseid'=>$course->id, 'enrol'=>'voot'), '*', IGNORE_MULTIPLE)) {
-                        $instances[$course->id] = $instance;
-                        continue;
-                    }
-
-                    $enrolid = $this->add_instance($course);
-                    $instances[$course->id] = $DB->get_record('enrol', array('id'=>$enrolid));
+                    $roleid = $defaultrole;
+                } else {
+                    $role = ($curenrolment["voot_membership_role"] == $localuserfield) ? "teacher" : "student";
+                    $roleid = $roles[$role];
                 }
-            }
-            $rs->Close();
-            $extdb->Close();
-        } else {
-            // Bad luck, something is wrong with the db connection.
-            $extdb->Close();
-            return;
+
+                if (empty($enrols[$course->id])) {
+                    $enrols[$course->id] = array();
+                }
+                $enrols[$course->id][] = $roleid;
+
+                if ($instance = $DB->get_record('enrol', array('courseid'=>$course->id, 'enrol'=>'voot'), '*', IGNORE_MULTIPLE)) {
+                    $instances[$course->id] = $instance;
+                    continue;
+                }
+
+                $enrolid = $this->add_instance($course);
+                $instances[$course->id] = $DB->get_record('enrol', array('id'=>$enrolid));
         }
 
         // Enrol user into courses and sync roles.
@@ -289,7 +263,7 @@ class enrol_voot_plugin extends enrol_plugin {
         global $CFG, $DB;
 
         // We do not create courses here intentionally because it requires full sync and is slow.
-        if (!$this->get_config('dbtype') or !$this->get_config('remoteenroltable') or !$this->get_config('remotecoursefield') or !$this->get_config('remoteuserfield')) {
+        if (!$this->get_config('voothost') or !$this->get_config('urlprefix')) {
             $trace->output('User enrolment synchronisation skipped.');
             $trace->finished();
             return 0;
@@ -297,32 +271,14 @@ class enrol_voot_plugin extends enrol_plugin {
 
         $trace->output('Starting user enrolment synchronisation...');
 
-        if (!$extdb = $this->db_init()) {
-            $trace->output('Error while communicating with external enrolment voot');
-            $trace->finished();
-            return 1;
-        }
-
         // We may need a lot of memory here.
         @set_time_limit(0);
         raise_memory_limit(MEMORY_HUGE);
 
-        $table            = $this->get_config('remoteenroltable');
-        $coursefield      = trim($this->get_config('remotecoursefield'));
-        $userfield        = trim($this->get_config('remoteuserfield'));
-        $rolefield        = trim($this->get_config('remoterolefield'));
-
-        // Lowercased versions - necessary because we normalise the resultset with array_change_key_case().
-        $coursefield_l    = strtolower($coursefield);
-        $userfield_l      = strtolower($userfield);
-        $rolefield_l      = strtolower($rolefield);
-
-        $localrolefield   = $this->get_config('localrolefield');
-        $localuserfield   = $this->get_config('localuserfield');
-        $localcoursefield = $this->get_config('localcoursefield');
-
+	$localuserfield   = $this->get_config('localuserfield', 'admins');
         $unenrolaction    = $this->get_config('unenrolaction');
         $defaultrole      = $this->get_config('defaultrole');
+	$groupprefix      = $this->get_config('groupprefix', '');
 
         // Create roles mapping.
         $allroles = get_all_roles();
@@ -331,11 +287,11 @@ class enrol_voot_plugin extends enrol_plugin {
         }
         $roles = array();
         foreach ($allroles as $role) {
-            $roles[$role->$localrolefield] = $role->id;
+            $roles[$role->shortname] = $role->id;
         }
 
         if ($onecourse) {
-            $sql = "SELECT c.id, c.visible, c.$localcoursefield AS mapping, c.shortname, e.id AS enrolid
+            $sql = "SELECT c.id, c.visible, c.shortname AS mapping, c.shortname, e.id AS enrolid
                       FROM {course} c
                  LEFT JOIN {enrol} e ON (e.courseid = c.id AND e.enrol = 'voot')
                      WHERE c.id = :id";
@@ -359,26 +315,12 @@ class enrol_voot_plugin extends enrol_plugin {
 
         } else {
             // Get a list of courses to be synced that are in external table.
-            $externalcourses = array();
-            $sql = $this->db_get_sql($table, array(), array($coursefield), true);
-            if ($rs = $extdb->Execute($sql)) {
-                if (!$rs->EOF) {
-                    while ($mapping = $rs->FetchRow()) {
-                        $mapping = reset($mapping);
-                        $mapping = $this->db_decode($mapping);
-                        if (empty($mapping)) {
-                            // invalid mapping
-                            continue;
-                        }
-                        $externalcourses[$mapping] = true;
-                    }
-                }
-                $rs->Close();
-            } else {
-                $trace->output('Error reading data from the external enrolment table');
-                $extdb->Close();
+            if (!$externalcourses = $this->voot_getcourses()) {
+                $trace->output('Error while communicating with external enrolment VOOT server');
+                $trace->finished();
                 return 2;
             }
+
             $preventfullunenrol = empty($externalcourses);
             if ($preventfullunenrol and $unenrolaction == ENROL_EXT_REMOVED_UNENROL) {
                 $trace->output('Preventing unenrolment of all current users, because it might result in major data loss, there has to be at least one record in external enrol table, sorry.', 1);
@@ -386,7 +328,7 @@ class enrol_voot_plugin extends enrol_plugin {
 
             // First find all existing courses with enrol instance.
             $existing = array();
-            $sql = "SELECT c.id, c.visible, c.$localcoursefield AS mapping, e.id AS enrolid, c.shortname
+            $sql = "SELECT c.id, c.visible, c.shortname AS mapping, e.id AS enrolid, c.shortname
                       FROM {course} c
                       JOIN {enrol} e ON (e.courseid = c.id AND e.enrol = 'voot')";
             $rs = $DB->get_recordset_sql($sql); // Watch out for idnumber duplicates.
@@ -395,7 +337,7 @@ class enrol_voot_plugin extends enrol_plugin {
                     continue;
                 }
                 $existing[$course->mapping] = $course;
-                unset($externalcourses[$course->mapping]);
+                unset($externalcourses[$groupprefix . $course->mapping]);
             }
             $rs->close();
 
@@ -403,10 +345,10 @@ class enrol_voot_plugin extends enrol_plugin {
             $params = array();
             $localnotempty = "";
             if ($localcoursefield !== 'id') {
-                $localnotempty =  "AND c.$localcoursefield <> :lcfe";
+                $localnotempty =  "AND c.shortname <> :lcfe";
                 $params['lcfe'] = '';
             }
-            $sql = "SELECT c.id, c.visible, c.$localcoursefield AS mapping, c.shortname
+            $sql = "SELECT c.id, c.visible, c.shortname AS mapping, c.shortname
                       FROM {course} c
                  LEFT JOIN {enrol} e ON (e.courseid = c.id AND e.enrol = 'voot')
                      WHERE e.id IS NULL $localnotempty";
@@ -415,13 +357,13 @@ class enrol_voot_plugin extends enrol_plugin {
                 if (empty($course->mapping)) {
                     continue;
                 }
-                if (!isset($externalcourses[$course->mapping])) {
+                if (!isset($externalcourses[$groupprefix . $course->mapping])) {
                     // Course not synced or duplicate.
                     continue;
                 }
                 $course->enrolid = $this->add_instance($course);
-                $existing[$course->mapping] = $course;
-                unset($externalcourses[$course->mapping]);
+                $existing[$groupprefix . $course->mapping] = $course;
+                unset($externalcourses[$groupprefix . $course->mapping]);
             }
             $rs->close();
 
@@ -439,10 +381,6 @@ class enrol_voot_plugin extends enrol_plugin {
         }
 
         // Sync user enrolments.
-        $sqlfields = array($userfield);
-        if ($rolefield) {
-            $sqlfields[] = $rolefield;
-        }
         foreach ($existing as $course) {
             if ($ignorehidden and !$course->visible) {
                 continue;
@@ -456,16 +394,14 @@ class enrol_voot_plugin extends enrol_plugin {
             $current_roles  = array();
             $current_status = array();
             $user_mapping   = array();
-            $sql = "SELECT u.$localuserfield AS mapping, u.id, ue.status, ue.userid, ra.roleid
+            $sql = "SELECT u.username AS mapping, u.id, ue.status, ue.userid, ra.roleid
                       FROM {user} u
                       JOIN {user_enrolments} ue ON (ue.userid = u.id AND ue.enrolid = :enrolid)
                       JOIN {role_assignments} ra ON (ra.userid = u.id AND ra.itemid = ue.enrolid AND ra.component = 'enrol_voot')
                      WHERE u.deleted = 0";
             $params = array('enrolid'=>$instance->id);
-            if ($localuserfield === 'username') {
-                $sql .= " AND u.mnethostid = :mnethostid";
-                $params['mnethostid'] = $CFG->mnet_localhost_id;
-            }
+            $sql .= " AND u.mnethostid = :mnethostid";
+            $params['mnethostid'] = $CFG->mnet_localhost_id;
             $rs = $DB->get_recordset_sql($sql, $params);
             foreach ($rs as $ue) {
                 $current_roles[$ue->userid][$ue->roleid] = $ue->roleid;
@@ -475,49 +411,45 @@ class enrol_voot_plugin extends enrol_plugin {
             $rs->close();
 
             // Get list of users that need to be enrolled and their roles.
-            $requested_roles = array();
-            $sql = $this->db_get_sql($table, array($coursefield=>$course->mapping), $sqlfields);
-            if ($rs = $extdb->Execute($sql)) {
-                if (!$rs->EOF) {
-                    $usersearch = array('deleted' => 0);
-                    if ($localuserfield === 'username') {
-                        $usersearch['mnethostid'] = $CFG->mnet_localhost_id;
-                    }
-                    while ($fields = $rs->FetchRow()) {
-                        $fields = array_change_key_case($fields, CASE_LOWER);
-                        if (empty($fields[$userfield_l])) {
-                            $trace->output("error: skipping user without mandatory $localuserfield in course '$course->mapping'", 1);
-                            continue;
-                        }
-                        $mapping = $fields[$userfield_l];
-                        if (!isset($user_mapping[$mapping])) {
-                            $usersearch[$localuserfield] = $mapping;
-                            if (!$user = $DB->get_record('user', $usersearch, 'id', IGNORE_MULTIPLE)) {
-                                $trace->output("error: skipping unknown user $localuserfield '$mapping' in course '$course->mapping'", 1);
-                                continue;
-                            }
-                            $user_mapping[$mapping] = $user->id;
-                            $userid = $user->id;
-                        } else {
-                            $userid = $user_mapping[$mapping];
-                        }
-                        if (empty($fields[$rolefield_l]) or !isset($roles[$fields[$rolefield_l]])) {
-                            if (!$defaultrole) {
-                                $trace->output("error: skipping user '$userid' in course '$course->mapping' - missing course and default role", 1);
-                                continue;
-                            }
-                            $roleid = $defaultrole;
-                        } else {
-                            $roleid = $roles[$fields[$rolefield_l]];
-                        }
+            if (!$coursenrolments = $this->voot_getmembers($course->mapping)) {
+                $trace->output('Error while communicating with external enrolment VOOT server');
+                $trace->finished();
+                return 2;
+            }
 
-                        $requested_roles[$userid][$roleid] = $roleid;
-                    }
+            foreach ($coursenrolments as $curenrolment) {
+                $curenrolment = get_object_vars($curenrolment);
+                $usersearch = array('deleted' => 0);
+                $usersearch['mnethostid'] = $CFG->mnet_localhost_id;
+
+                if (empty($curenrolment["id"])) {
+                    $trace->output("error: skipping user without mandatory id in course '$course->mapping'", 1);
+                    continue;
                 }
-                $rs->Close();
-            } else {
-                $trace->output("error: skipping course '$course->mapping' - could not match with external voot", 1);
-                continue;
+                $mapping = $curenrolment["id"];
+                if (!isset($user_mapping[$mapping])) {
+                    $usersearch['username'] = $mapping;
+                    if (!$user = $DB->get_record('user', $usersearch, 'id', IGNORE_MULTIPLE)) {
+                        $trace->output("error: skipping unknown user username '$mapping' in course '$course->mapping'", 1);
+                        continue;
+                    }
+                    $user_mapping[$mapping] = $user->id;
+                    $userid = $user->id;
+                } else {
+                    $userid = $user_mapping[$mapping];
+                }
+                if (empty($curenrolment["voot_membership_role"]) or !isset($curenrolment["voot_membership_role"])) {
+                    if (!$defaultrole) {
+                        $trace->output("error: skipping user '$userid' in course '$course->mapping' - missing course and default role", 1);
+                        continue;
+                    }
+                    $roleid = $defaultrole;
+                } else {
+                    $role = ($curenrolment["voot_membership_role"] == $localuserfield) ? "teacher" : "student";
+                    $roleid = $roles[$role];
+                }
+
+                $requested_roles[$userid][$roleid] = $roleid;
             }
             unset($user_mapping);
 
@@ -591,9 +523,6 @@ class enrol_voot_plugin extends enrol_plugin {
             }
         }
 
-        // Close db connection.
-        $extdb->Close();
-
         $trace->output('...user enrolment synchronisation finished.');
         $trace->finished();
 
@@ -630,10 +559,6 @@ class enrol_voot_plugin extends enrol_plugin {
             $trace->finished();
             return 1;
         }
-	else {
-            $courses = get_object_vars($courses);
-            $courses = $courses['entry'];
-	}
 
         $fullname  = trim($this->get_config('newcoursefullname'));
         $shortname = trim($this->get_config('newcourseshortname'));
@@ -660,10 +585,6 @@ class enrol_voot_plugin extends enrol_plugin {
         $createcourses = array();
         foreach ($courses as $curcourse) {
             $parts = explode(':', $curcourse->$shortname);
-            if ($parts[$localcoursefield - 1] != 'moodle') {
-                continue;
-            }
-
             $course_shortname = $parts[$localcoursefield];
             $parts = explode(':', $curcourse->$fullname);
             $course_fullname = $parts[$localcoursefield];
@@ -745,9 +666,6 @@ class enrol_voot_plugin extends enrol_plugin {
             unset($template);
         }
 
-        // Close db connection.
-        $extdb->Close();
-
         $trace->output('...course synchronisation finished.');
         $trace->finished();
 
@@ -778,12 +696,28 @@ class enrol_voot_plugin extends enrol_plugin {
     protected function voot_getcourses() {
         global $CFG;
 
+	$groupprefix = $this->get_config('groupprefix', '');
+        $shortname = trim($this->get_config('newcourseshortname', 'id'));
 	$url = $this->get_config('vootproto') . "://" . $this->get_config('voothost') . $this->get_config('urlprefix') . "/groups";
 	$pagecontent = $this->getSslPage($url, $this->get_config('vootuser'), $this->get_config('vootpass'));
 
-	$groups = json_decode($pagecontent);
-	if (json_last_error() === JSON_ERROR_NONE) { 
-		return $groups;
+	$courses = json_decode($pagecontent);
+	if (json_last_error() === JSON_ERROR_NONE) {
+		$courses = get_object_vars($courses);
+		$courses = $courses['entry'];
+		$valret = array();
+
+		if ($groupprefix == '') {
+			return $courses;
+		}
+		else {
+			foreach($courses as $curcourse) {
+				if (strpos($curcourse->$shortname, $groupprefix) === 0) {
+					$valret[$curcourse->$shortname] = $curcourse;
+				}
+			}
+			return $valret;
+		}
 	}
 
 	return NULL;
@@ -797,11 +731,36 @@ class enrol_voot_plugin extends enrol_plugin {
     protected function voot_getmembers($courseid) {
         global $CFG;
 
-	$url = $this->get_config('vootproto') . "://" . $this->get_config('voothost') . $this->get_config('urlprefix') . "/people/@me/" . $courseid;
+	$groupprefix = $this->get_config('groupprefix', '');
+	$url = $this->get_config('vootproto') . "://" . $this->get_config('voothost') . $this->get_config('urlprefix') . "/people/@me/" . $groupprefix . $courseid;
 	$pagecontent = $this->getSslPage($url, $this->get_config('vootuser'), $this->get_config('vootpass'));
 
 	$members = json_decode($pagecontent);
 	if (json_last_error() === JSON_ERROR_NONE) { 
+		$members = get_object_vars($members);
+                $members = $members['entry'];
+		return $members;
+	}
+
+	return NULL;
+    }
+
+    /**
+     * Tries to make connection to the external VOOT server.
+     *
+     * @return null|mixedJSON
+     */
+    protected function voot_getenrolments($user) {
+        global $CFG;
+
+	$groupprefix = get_config('groupprefix', '');
+	$url = $this->get_config('vootproto') . "://" . $this->get_config('voothost') . $this->get_config('urlprefix') . "/groups/" . $yser . "/";
+	$pagecontent = $this->getSslPage($url, $this->get_config('vootuser'), $this->get_config('vootpass'));
+
+	$members = json_decode($pagecontent);
+	if (json_last_error() === JSON_ERROR_NONE) { 
+		$members = get_object_vars($members);
+                $members = $members['entry'];
 		return $members;
 	}
 
@@ -827,7 +786,6 @@ class enrol_voot_plugin extends enrol_plugin {
      */
     public function restore_instance(restore_enrolments_structure_step $step, stdClass $data, $course, $oldid) {
         global $DB;
-
         if ($instance = $DB->get_record('enrol', array('courseid'=>$course->id, 'enrol'=>$this->get_name()))) {
             $instanceid = $instance->id;
         } else {
@@ -903,6 +861,7 @@ class enrol_voot_plugin extends enrol_plugin {
         error_reporting($CFG->debug);
 
         $returnedpage = $this->voot_getcourses();
+
 	$first_course = '';
         if (!$returnedpage) {
             $CFG->debug = $olddebug;
