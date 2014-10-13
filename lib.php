@@ -99,7 +99,7 @@ class enrol_voot_plugin extends enrol_plugin {
             return;
         }
 
-	$localuserfield   = $this->get_config('localuserfield', 'admins');
+	$localuserfield   = $this->get_config('localuserfield', 'admin');
 
         $unenrolaction    = $this->get_config('unenrolaction');
         $defaultrole      = $this->get_config('defaultrole');
@@ -272,7 +272,7 @@ class enrol_voot_plugin extends enrol_plugin {
         @set_time_limit(0);
         raise_memory_limit(MEMORY_HUGE);
 
-	$localuserfield   = $this->get_config('localuserfield', 'admins');
+	$localuserfield   = $this->get_config('localuserfield', 'admin');
         $unenrolaction    = $this->get_config('unenrolaction');
         $defaultrole      = $this->get_config('defaultrole');
 	$groupprefix      = $this->get_config('groupprefix', '');
@@ -385,6 +385,7 @@ class enrol_voot_plugin extends enrol_plugin {
             if (!$instance = $DB->get_record('enrol', array('id'=>$course->enrolid))) {
                 continue; // Weird!
             }
+
             $context = context_course::instance($course->id);
 
             // Get current list of enrolled users with their roles.
@@ -453,6 +454,10 @@ class enrol_voot_plugin extends enrol_plugin {
             // Enrol all users and sync roles.
             foreach ($requested_roles as $userid=>$userroles) {
                 foreach ($userroles as $roleid) {
+		    #if (!in_array($userid, $current_roles)) {
+		    #	$current_roles[$userid] = array();
+		    #}
+
                     if (empty($current_roles[$userid])) {
                         $this->enrol_user($instance, $userid, $roleid, 0, 0, ENROL_USER_ACTIVE);
                         $current_roles[$userid][$roleid] = $roleid;
@@ -481,8 +486,8 @@ class enrol_voot_plugin extends enrol_plugin {
 
                 // Reenable enrolment when previously disable enrolment refreshed.
                 if ($current_status[$userid] == ENROL_USER_SUSPENDED) {
+                    #$trace->output("unsuspending: $userid ==> $course->shortname", 1);
                     $this->update_user_enrol($instance, $userid, ENROL_USER_ACTIVE);
-                    $trace->output("unsuspending: $userid ==> $course->shortname", 1);
                 }
             }
 
@@ -518,6 +523,8 @@ class enrol_voot_plugin extends enrol_plugin {
                     }
                 }
             }
+
+            unset($requested_roles);
         }
 
         $trace->output('...user enrolment synchronisation finished.');
@@ -727,9 +734,13 @@ class enrol_voot_plugin extends enrol_plugin {
      */
     protected function voot_getmembers($courseid) {
         global $CFG;
-
 	$groupprefix = $this->get_config('groupprefix', '');
-	$url = $this->get_config('vootproto') . "://" . $this->get_config('voothost') . $this->get_config('urlprefix') . "/people/@me/" . $groupprefix . $courseid;
+
+	if (strpos($courseid, $groupprefix) !== 0) {
+		$courseid = $groupprefix . $courseid;
+	}
+
+	$url = $this->get_config('vootproto') . "://" . $this->get_config('voothost') . $this->get_config('urlprefix') . "/people/@me/" . $courseid;
 	$pagecontent = $this->getSslPage($url, $this->get_config('vootuser'), $this->get_config('vootpass'));
 
 	$members = json_decode($pagecontent);
@@ -868,8 +879,8 @@ class enrol_voot_plugin extends enrol_plugin {
             echo $OUTPUT->notification('Cannot connect to the VOOT server.', 'notifyproblem');
         }
 	else {
-		$first_course = $returnedpage->entry[0]->id;
-		echo $OUTPUT->notification('External course call retrieves the following fields:<br />'. implode(', ', array_keys(get_object_vars($returnedpage->entry[0]))), 'notifysuccess');
+		$first_course = $returnedpage[key($returnedpage)]->id;
+		echo $OUTPUT->notification('External course call retrieves the following fields:<br />'. implode(', ', array_keys(get_object_vars($returnedpage[key($returnedpage)]))), 'notifysuccess');
 	}
 
 	if (!empty($first_course)) {
@@ -883,7 +894,7 @@ class enrol_voot_plugin extends enrol_plugin {
 	            echo $OUTPUT->notification('Cannot connect to the VOOT server.', 'notifyproblem');
 	        }
 		else {
-			echo $OUTPUT->notification('External enrolment call retrieves the following fields:<br />'. implode(', ', array_keys(get_object_vars($returnedpage->entry[0]))), 'notifysuccess');
+			echo $OUTPUT->notification('External enrolment call retrieves the following fields:<br />'. implode(', ', array_keys(get_object_vars($returnedpage[key($returnedpage)]))), 'notifysuccess');
 		}
 	}
 
