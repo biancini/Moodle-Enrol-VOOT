@@ -150,7 +150,7 @@ class enrol_voot_plugin extends enrol_plugin {
                     }
                     $roleid = $defaultrole;
                 } else {
-                    $role = ($curenrolment["voot_membership_role"] == $localuserfield) ? "teacher" : "student";
+                    $role = ($curenrolment["voot_membership_role"] == $localuserfield) ? "editingteacher" : "student";
                     $roleid = $roles[$role];
                 }
 
@@ -443,7 +443,7 @@ class enrol_voot_plugin extends enrol_plugin {
                     }
                     $roleid = $defaultrole;
                 } else {
-                    $role = ($curenrolment["voot_membership_role"] == $localuserfield) ? "teacher" : "student";
+                    $role = ($curenrolment["voot_membership_role"] == $localuserfield) ? "editingteacher" : "student";
                     $roleid = $roles[$role];
                 }
 
