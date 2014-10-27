@@ -93,13 +93,13 @@ class enrol_voot_plugin extends enrol_plugin {
      */
     public function sync_user_enrolments($user) {
         global $CFG, $DB;
-
         // We do not create courses here intentionally because it requires full sync and is slow.
         if (!$this->get_config('voothost') or !$this->get_config('urlprefix')) {
             return;
         }
 
 	$localuserfield   = $this->get_config('localuserfield', 'admin');
+	$localcoursefield   = intval($this->get_config('localcoursefield', '0'));
 
         $unenrolaction    = $this->get_config('unenrolaction');
         $defaultrole      = $this->get_config('defaultrole');
@@ -131,12 +131,14 @@ class enrol_voot_plugin extends enrol_plugin {
 
 	foreach($enrolments as $curenrolment) {
 		$curenrolment = get_object_vars($curenrolment);
+		$parts = explode(':', $curenrolment['id']);
+		$course_shortname = $parts[$localcoursefield];
 
-		if (empty($curenrolment['id'])) {
+		if (empty($course_shortname)) {
 			// Missing course info.
 			continue;
 		}
-		if (!$course = $DB->get_record('course', array('shortname'=>$curenrolment['id']), 'id,visible')) {
+		if (!$course = $DB->get_record('course', array('shortname'=>$course_shortname), 'id,visible')) {
 			continue;
 		}
 		if (!$course->visible and $ignorehidden) {
@@ -410,7 +412,7 @@ class enrol_voot_plugin extends enrol_plugin {
 
             // Get list of users that need to be enrolled and their roles.
             if (!$coursenrolments = $this->voot_getmembers($course->mapping)) {
-                $trace->output('Error while communicating with external enrolment VOOT server');
+                $trace->output('Error while communicating with external enrolment VOOT server or no groups defined.');
                 $trace->finished();
                 return 2;
             }
@@ -450,6 +452,8 @@ class enrol_voot_plugin extends enrol_plugin {
                 $requested_roles[$userid][$roleid] = $roleid;
             }
             unset($user_mapping);
+
+		print_r($requested_roles);
 
             // Enrol all users and sync roles.
             foreach ($requested_roles as $userid=>$userroles) {
@@ -720,10 +724,13 @@ class enrol_voot_plugin extends enrol_plugin {
 					$valret[$curcourse->$shortname] = $curcourse;
 				}
 			}
+			if (count($valret) == 0) {
+				return NULL;
+			}
 			return $valret;
 		}
 	}
-
+	
 	return NULL;
     }
 
@@ -747,6 +754,9 @@ class enrol_voot_plugin extends enrol_plugin {
 	if (json_last_error() === JSON_ERROR_NONE) { 
 		$members = get_object_vars($members);
                 $members = $members['entry'];
+		if (count($members) == 0) {
+			return NULL;
+		}
 		return $members;
 	}
 
@@ -761,14 +771,29 @@ class enrol_voot_plugin extends enrol_plugin {
     protected function voot_getenrolments($user) {
         global $CFG;
 
-	$groupprefix = get_config('groupprefix', '');
+	$groupprefix = $this->get_config('groupprefix', '');
 	$url = $this->get_config('vootproto') . "://" . $this->get_config('voothost') . $this->get_config('urlprefix') . "/groups/" . $user . "/";
 	$pagecontent = $this->getSslPage($url, $this->get_config('vootuser'), $this->get_config('vootpass'));
 	$members = json_decode($pagecontent);
 	if (json_last_error() === JSON_ERROR_NONE) { 
 		$members = get_object_vars($members);
                 $members = $members['entry'];
-		return $members;
+		$valret = array();
+
+                if ($groupprefix == '') {
+                        return $members;
+                }
+                else {
+                        foreach($members as $curmember) {
+                                if (strpos($curmember->id, $groupprefix) === 0) {
+                                        array_push($valret, $curmember);
+                                }
+                        }
+                        if (count($valret) == 0) {
+                                return NULL;
+                        }
+                        return $valret;
+                }
 	}
 
 	return NULL;
@@ -891,7 +916,7 @@ class enrol_voot_plugin extends enrol_plugin {
 	            error_reporting($CFG->debug);
         	    ob_end_flush();
 
-	            echo $OUTPUT->notification('Cannot connect to the VOOT server.', 'notifyproblem');
+	            echo $OUTPUT->notification('Cannot connect to the VOOT server or no group defined.', 'notifyproblem');
 	        }
 		else {
 			echo $OUTPUT->notification('External enrolment call retrieves the following fields:<br />'. implode(', ', array_keys(get_object_vars($returnedpage[key($returnedpage)]))), 'notifysuccess');
