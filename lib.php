@@ -453,8 +453,6 @@ class enrol_voot_plugin extends enrol_plugin {
             }
             unset($user_mapping);
 
-		print_r($requested_roles);
-
             // Enrol all users and sync roles.
             foreach ($requested_roles as $userid=>$userroles) {
                 foreach ($userroles as $roleid) {
@@ -708,27 +706,29 @@ class enrol_voot_plugin extends enrol_plugin {
         $shortname = trim($this->get_config('newcourseshortname', 'id'));
 	$url = $this->get_config('vootproto') . "://" . $this->get_config('voothost') . $this->get_config('urlprefix') . "/groups";
 	$pagecontent = $this->getSslPage($url, $this->get_config('vootuser'), $this->get_config('vootpass'));
-
 	$courses = json_decode($pagecontent);
 	if (json_last_error() === JSON_ERROR_NONE) {
 		$courses = get_object_vars($courses);
 		$courses = $courses['entry'];
 		$valret = array();
 
-		if ($groupprefix == '') {
-			return $courses;
-		}
-		else {
-			foreach($courses as $curcourse) {
-				if (strpos($curcourse->$shortname, $groupprefix) === 0) {
+		foreach($courses as $curcourse) {
+			if (!strpos($curcourse->$shortname, ":service:") > 0) {
+				if ($groupprefix == '') {
 					$valret[$curcourse->$shortname] = $curcourse;
 				}
+				else {
+					if (strpos($curcourse->$shortname, $groupprefix) === 0) {
+						$valret[$curcourse->$shortname] = $curcourse;
+					}
+				}
 			}
-			if (count($valret) == 0) {
-				return NULL;
-			}
-			return $valret;
 		}
+
+		if (count($valret) == 0) {
+			return NULL;
+		}
+		return $valret;
 	}
 	
 	return NULL;
