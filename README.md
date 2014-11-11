@@ -1,4 +1,4 @@
-Moodle-Enrol-VOOT
+moodle-enrol_voot
 =================
 
 Moodle enrolment plugin for external VOOT server.
