@@ -42,8 +42,6 @@ if ($ADMIN->fulltree) {
 
     $settings->add(new admin_setting_configtext('enrol_voot/urlprefix', get_string('urlprefix', 'enrol_voot'), get_string('urlprefix_desc', 'enrol_voot'), '/grouper-ws/voot'));
 
-    $settings->add(new admin_setting_configtext('enrol_voot/localcoursefield', get_string('localcoursefield', 'enrol_voot'), get_string('localcoursefield_desc', 'enrol_voot'), '0'));
-
     $settings->add(new admin_setting_configtext('enrol_voot/groupprefix', get_string('groupprefix', 'enrol_voot'), get_string('groupprefix_desc', 'enrol_voot'), ''));
 
     $settings->add(new admin_setting_configtext('enrol_voot/localuserfield', get_string('localuserfield', 'enrol_voot'), get_string('localuserfield_desc', 'enrol_voot'), 'admins'));
@@ -60,13 +58,6 @@ if ($ADMIN->fulltree) {
                      ENROL_EXT_REMOVED_SUSPEND        => get_string('extremovedsuspend', 'enrol'),
                      ENROL_EXT_REMOVED_SUSPENDNOROLES => get_string('extremovedsuspendnoroles', 'enrol'));
     $settings->add(new admin_setting_configselect('enrol_voot/unenrolaction', get_string('extremovedaction', 'enrol'), get_string('extremovedaction_help', 'enrol'), ENROL_EXT_REMOVED_UNENROL, $options));
-
-    $settings->add(new admin_setting_configtext('enrol_voot/newcoursefullname', get_string('newcoursefullname', 'enrol_voot'), '', 'name'));
-
-    $settings->add(new admin_setting_configtext('enrol_voot/newcourseshortname', get_string('newcourseshortname', 'enrol_voot'), '', 'id'));
-
-    $options = array('id'=>'id', 'idnumber'=>'idnumber');
-    $settings->add(new admin_setting_configselect('enrol_voot/localcategoryfield', get_string('localcategoryfield', 'enrol_voot'), '', 'id', $options));
 
     if (!during_initial_install()) {
         $settings->add(new admin_setting_configselect('enrol_voot/defaultcategory', get_string('defaultcategory', 'enrol_voot'), get_string('defaultcategory_desc', 'enrol_voot'), 1, make_categories_options()));

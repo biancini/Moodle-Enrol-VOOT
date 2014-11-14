@@ -99,7 +99,11 @@ class enrol_voot_plugin extends enrol_plugin {
         }
 
 	$localuserfield   = $this->get_config('localuserfield', 'admin');
-	$localcoursefield   = intval($this->get_config('localcoursefield', '0'));
+	$localcoursefield = -1;
+	$groupprefix = $this->get_config('groupprefix', null);
+	if (isset($groupprefix)) {
+		$localcoursefield = substr_count($groupprefix, ':');
+	}
 
         $unenrolaction    = $this->get_config('unenrolaction');
         $defaultrole      = $this->get_config('defaultrole');
@@ -131,8 +135,13 @@ class enrol_voot_plugin extends enrol_plugin {
 
 	foreach($enrolments as $curenrolment) {
 		$curenrolment = get_object_vars($curenrolment);
-		$parts = explode(':', $curenrolment['id']);
-		$course_shortname = $parts[$localcoursefield];
+		if ($localcoursefield != -1) {
+			$parts = explode(':', $curenrolment['id']);
+			$course_shortname = $parts[$localcoursefield];
+		}
+		else {
+			$course_shortname = $curenrolment['id'];
+		}
 
 		if (empty($course_shortname)) {
 			// Missing course info.
@@ -343,10 +352,9 @@ class enrol_voot_plugin extends enrol_plugin {
             // Add necessary enrol instances that are not present yet.
             $params = array();
             $localnotempty = "";
-            if ($localcoursefield !== 'id') {
-                $localnotempty =  "AND c.shortname <> :lcfe";
-                $params['lcfe'] = '';
-            }
+            $localnotempty =  "AND c.shortname <> :lcfe";
+            $params['lcfe'] = '';
+
             $sql = "SELECT c.id, c.visible, c.shortname AS mapping, c.shortname
                       FROM {course} c
                  LEFT JOIN {enrol} e ON (e.courseid = c.id AND e.enrol = 'voot')
@@ -566,12 +574,15 @@ class enrol_voot_plugin extends enrol_plugin {
             return 1;
         }
 
-        $fullname  = trim($this->get_config('newcoursefullname'));
-        $shortname = trim($this->get_config('newcourseshortname'));
+        $fullname        = 'name';
+        $shortname       = 'id';
+        $defaultcategory = $this->get_config('defaultcategory');
+	$groupprefix     = $this->get_config('groupprefix', null);
 
-	$localcoursefield   = intval($this->get_config('localcoursefield', '0'));
-        $localcategoryfield = $this->get_config('localcategoryfield', 'id');
-        $defaultcategory    = $this->get_config('defaultcategory');
+	$localcoursefield = -1;
+	if (isset($groupprefix)) {
+		$localcoursefield = substr_count($groupprefix, ':');
+	}
 
         if (!$DB->record_exists('course_categories', array('id'=>$defaultcategory))) {
             $trace->output("default course category does not exist!", 1);
@@ -590,10 +601,16 @@ class enrol_voot_plugin extends enrol_plugin {
 
         $createcourses = array();
         foreach ($courses as $curcourse) {
-            $parts = explode(':', $curcourse->$shortname);
-            $course_shortname = $parts[$localcoursefield];
-            $parts = explode(':', $curcourse->$fullname);
-            $course_fullname = $parts[$localcoursefield];
+	    if ($localcoursefield != -1) {
+	            $parts = explode(':', $curcourse->$shortname);
+        	    $course_shortname = $parts[$localcoursefield];
+	            $parts = explode(':', $curcourse->$fullname);
+        	    $course_fullname = $parts[$localcoursefield];
+	    }
+	    else {
+		    $course_shortname = $curcourse->$shortname;
+		    $course_fullname = $curcourse->$fullname;
+	    }
 
             if (empty($course_shortname) or empty($course_fullname)) {
                 $trace->output('error: invalid external course record, shortname and fullname are mandatory: ' . json_encode($curcourse), 1); // Hopefully every geek can read JS, right?
