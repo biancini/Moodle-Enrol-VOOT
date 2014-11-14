@@ -722,6 +722,9 @@ class enrol_voot_plugin extends enrol_plugin {
 	$groupprefix = $this->get_config('groupprefix', '');
         $shortname = trim($this->get_config('newcourseshortname', 'id'));
 	$url = $this->get_config('vootproto') . "://" . $this->get_config('voothost') . $this->get_config('urlprefix') . "/groups";
+	if (isset($groupprefix) && !empty($groupprefix)) {
+		$url .= "?search=" . $groupprefix;
+	}
 	$pagecontent = $this->getSslPage($url, $this->get_config('vootuser'), $this->get_config('vootpass'));
 	$courses = json_decode($pagecontent);
 	if (json_last_error() === JSON_ERROR_NONE) {
