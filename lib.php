@@ -767,7 +767,7 @@ class enrol_voot_plugin extends enrol_plugin {
 		$courseid = $groupprefix . $courseid;
 	}
 
-	$url = $this->get_config('vootproto') . "://" . $this->get_config('voothost') . $this->get_config('urlprefix') . "/people/@me/" . $courseid;
+	$url = $this->get_config('vootproto') . "://" . $this->get_config('voothost') . $this->get_config('urlprefix') . "/people/@me/" . urlencode($courseid);
 	$pagecontent = $this->getSslPage($url, $this->get_config('vootuser'), $this->get_config('vootpass'));
 
 	$members = json_decode($pagecontent);
